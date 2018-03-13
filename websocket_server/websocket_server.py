@@ -84,6 +84,9 @@ class API():
 
     def send_message_to_all(self, msg):
         self._multicast_(msg)
+	
+    def send_bytes(self, client, msg):
+        self._unicast_(client, msg)
 
 
 # ------------------------- Implementation -----------------------------
