@@ -241,6 +241,9 @@ class WebSocketHandler(StreamRequestHandler):
     def send_message(self, message):
         self.send_text(message)
 
+    def send_bytes(self, message):
+        self.send(message, OPCODE_BINARY)
+    
     def send_pong(self, message):
         self.send_text(message, OPCODE_PONG)
 
