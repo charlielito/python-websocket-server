@@ -5,7 +5,11 @@ import sys
 import struct
 from base64 import b64encode
 from hashlib import sha1
-import logging
+import logging, cv2, time
+
+import numpy as np
+
+from threading import Thread, Event
 
 if sys.version_info[0] < 3:
     from SocketServer import ThreadingMixIn, TCPServer, StreamRequestHandler
@@ -14,6 +18,7 @@ else:
 
 logger = logging.getLogger(__name__)
 logging.basicConfig()
+logger.setLevel(logging.INFO)
 
 '''
 +-+-+-+-+-------+-+-------------+-------------------------------+
@@ -79,14 +84,14 @@ class API():
     def set_fn_message_received(self, fn):
         self.message_received = fn
 
+    def send_bytes(self, client, msg):
+        self._bytes_unicast_(client, msg)
+
     def send_message(self, client, msg):
         self._unicast_(client, msg)
 
     def send_message_to_all(self, msg):
         self._multicast_(msg)
-	
-    def send_bytes(self, client, msg):
-        self._bytes_unicast_(client, msg)
 
 
 # ------------------------- Implementation -----------------------------
@@ -94,7 +99,6 @@ class API():
 class WebsocketServer(ThreadingMixIn, TCPServer, API):
     """
 	A websocket server waiting for clients to connect.
-
     Args:
         port(int): Port to bind to
         host(str): Hostname or IP to listen for connections. By default 127.0.0.1
@@ -102,7 +106,6 @@ class WebsocketServer(ThreadingMixIn, TCPServer, API):
             0.0.0.0.
         loglevel: Logging level from logging module to use for logging. By default
             warnings and errors are being logged.
-
     Properties:
         clients(list): A list of connected clients. A client is a dictionary
             like below.
@@ -119,7 +122,7 @@ class WebsocketServer(ThreadingMixIn, TCPServer, API):
     clients = []
     id_counter = 0
 
-    def __init__(self, port, host='127.0.0.1', loglevel=logging.WARNING):
+    def __init__(self, port, host='127.0.0.1', loglevel=logging.INFO):
         logger.setLevel(loglevel)
         TCPServer.__init__(self, (host, port), WebSocketHandler)
         self.port = self.socket.getsockname()[1]
@@ -154,7 +157,7 @@ class WebsocketServer(ThreadingMixIn, TCPServer, API):
 	
     def _bytes_unicast_(self, to_client, msg):
         to_client['handler'].send_bytes(msg)
-
+	
     def _multicast_(self, msg):
         for client in self.clients:
             self._unicast_(client, msg)
@@ -193,6 +196,7 @@ class WebSocketHandler(StreamRequestHandler):
             return bytes
 
     def read_next_message(self):
+        global CLIENT
         try:
             b1, b2 = self.read_bytes(2)
         except ConnectionResetError:
@@ -209,6 +213,7 @@ class WebSocketHandler(StreamRequestHandler):
 
         if opcode == OPCODE_CLOSE_CONN:
             logger.info("Client asked to close connection.")
+            CLIENT=None
             self.keep_alive = 0
             return
         if not masked:
@@ -247,11 +252,11 @@ class WebSocketHandler(StreamRequestHandler):
     def send_message(self, message):
         self.send_text(message)
 
-    def send_bytes(self, message):
-        self.send(message, OPCODE_BINARY)
-    
     def send_pong(self, message):
         self.send_text(message, OPCODE_PONG)
+
+    def send_bytes(self, message):
+        self.send(message, OPCODE_BINARY)
 
     def send_text(self, message, opcode=OPCODE_TEXT):
         """
@@ -273,8 +278,13 @@ class WebSocketHandler(StreamRequestHandler):
             logger.warning('Can\'t send message, message has to be a string or bytes. Given type is %s' % type(message))
             return False
 
-        header  = bytearray()
+
         payload = encode_to_UTF8(message)
+        self.send(payload, opcode)
+
+
+    def send(self, payload, opcode):
+        header  = bytearray()
         payload_length = len(payload)
 
         # Normal payload
