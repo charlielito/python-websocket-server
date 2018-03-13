@@ -86,7 +86,7 @@ class API():
         self._multicast_(msg)
 	
     def send_bytes(self, client, msg):
-        self._unicast_(client, msg)
+        self._bytes_unicast_(client, msg)
 
 
 # ------------------------- Implementation -----------------------------
@@ -151,6 +151,9 @@ class WebsocketServer(ThreadingMixIn, TCPServer, API):
 
     def _unicast_(self, to_client, msg):
         to_client['handler'].send_message(msg)
+	
+    def _bytes_unicast_(self, to_client, msg):
+	to_client['handler'].send_bytes(msg)
 
     def _multicast_(self, msg):
         for client in self.clients:
